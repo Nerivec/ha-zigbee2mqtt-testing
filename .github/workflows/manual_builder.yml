@@ -1,0 +1,66 @@
+name: Manual Builder
+
+env:
+  REGISTRY: ghcr.io
+
+on:
+  workflow_dispatch:
+    inputs:
+      arch:
+        description: "The arch to build"
+        required: true
+        default: "amd64"
+        type: choice
+        options: ["amd64", "aarch64"]
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    name: Build ${{ inputs.arch }} zigbee2mqtt-testing app
+    permissions:
+      packages: write
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+
+      - name: Get information
+        id: info
+        uses: home-assistant/actions/helpers/info@master
+        with:
+          path: "./zigbee2mqtt-testing"
+
+      - name: Check if app should be built
+        id: check
+        run: |
+          if [[ "${{ steps.info.outputs.image }}" == "null" ]]; then
+            echo "Image property is not defined, skipping build"
+            echo "build_arch=false" >> $GITHUB_OUTPUT;
+          elif [[ "${{ steps.info.outputs.architectures }}" =~ ${{ inputs.arch }} ]]; then
+            echo "build_arch=true" >> $GITHUB_OUTPUT;
+            echo "image=$(echo ${{ steps.info.outputs.image }} | cut -d'/' -f3)" >> $GITHUB_OUTPUT;
+          else
+            echo "${{ inputs.arch }} is not a valid arch for zigbee2mqtt-testing, skipping build";
+            echo "build_arch=false" >> $GITHUB_OUTPUT;
+          fi
+
+      - name: Login to GitHub Container Registry
+        if: steps.check.outputs.build_arch == 'true'
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.repository_owner }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build zigbee2mqtt-testing app
+        if: steps.check.outputs.build_arch == 'true'
+        uses: home-assistant/builder@2026.02.1
+        with:
+          args: |
+            --${{ inputs.arch }} \
+            --target zigbee2mqtt-testing \
+            --image "${{ steps.check.outputs.image }}" \
+            --docker-hub "${{ env.REGISTRY }}/${{ github.repository_owner }}" \
+            --addon
